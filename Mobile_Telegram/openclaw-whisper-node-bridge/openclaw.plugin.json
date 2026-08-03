@@ -1,0 +1,25 @@
+{
+  "id": "whisper-node-bridge",
+  "name": "Whisper Node Bridge",
+  "description": "Routes inbound Telegram voice-note transcription to an on-device Whisper NPU node over the Gateway node protocol.",
+  "contracts": {
+    "mediaUnderstandingProviders": ["whisper-node-bridge"]
+  },
+  "activation": {
+    "onStartup": true
+  },
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "nodeId": {
+        "type": "string",
+        "description": "Paired node id/name of the phone running WhisperTelegramNode (see 'openclaw nodes status')."
+      },
+      "timeoutMs": {
+        "type": "number",
+        "description": "Max time to wait for the phone to finish transcribing one clip. Default 60000."
+      }
+    },
+    "additionalProperties": false
+  }
+}
