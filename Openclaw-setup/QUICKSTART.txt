@@ -1,0 +1,85 @@
+================================================================================
+  DecoAI OpenClaw Setup — Quick Start
+================================================================================
+
+On a NEW PC, to set up the entire DecoAI system:
+
+1. Clone or copy the DecoAI repo:
+   git clone <repo-url> C:\mounika\DecoAI
+
+2. Navigate to the setup folder:
+   cd C:\mounika\DecoAI\openclaw-setup
+
+3. Run setup (one-time):
+   .\setup.ps1
+
+   This will:
+   - Check that openclaw is installed globally (npm install -g openclaw)
+   - Copy all skills (inventory-management, cost-estimation, database, amazon-url-builder, sd3-image-generation)
+     into ~/.openclaw/workspace/Skills/
+   - Create a .env file with default configuration
+
+4. (Optional) Edit the .env file to configure model backends:
+   notepad ~/.openclaw/workspace/Skills/.env
+
+5. Start the gateway:
+   .\start.ps1
+
+   Press Ctrl+C to stop.
+
+================================================================================
+  What each script does
+================================================================================
+
+setup.ps1
+  - Copies all DecoAI skills from the repo into ~/.openclaw/workspace/Skills/
+  - Creates a shared .env file for all skills
+  - Sets DECOAI_DB_PATH to point to the shared inventory database
+  - One-time setup; safe to run multiple times
+
+start.ps1
+  - Loads .env into the process environment
+  - Starts the OpenClaw gateway (npm-global openclaw)
+  - Tails the log to the console
+  - Press Ctrl+C to stop
+
+================================================================================
+  Skills installed
+================================================================================
+
+inventory-management
+  - decoai-invoice: extract line items from purchase invoices
+  - decoai-image: detect decoration items in photos and check stock
+  - decoai-refresh: sync shelf stock from Arduino vision (or dummy data)
+
+cost-estimation
+  - decoai-estimate: itemized have-vs-need cost estimate for decoration concepts
+
+amazon-url-builder
+  - POST /purchase-links: convert missing items to Amazon purchase links
+
+sd3-image-generation
+  - SD3_Tool.py: Stable Diffusion 3 image generation (local NPU)
+  - session_server.py: Session server for image generation
+
+================================================================================
+  Troubleshooting
+================================================================================
+
+"openclaw not found in PATH"
+  → npm install -g openclaw
+
+"Skills not showing up in OpenClaw"
+  → Restart the gateway with .\start.ps1 (OpenClaw reads skills on startup)
+
+"Database file not found"
+  → Check DECOAI_DB_PATH in ~/.openclaw/workspace/Skills/.env
+  → If the file doesn't exist, skills will create it on first run
+
+"Model backend not responding"
+  → Leave INVOICE_READ_MODEL_URL and IMAGE_READ_MODEL_URL blank to use mock data
+  → Mock data is deterministic and works fully offline for testing
+
+================================================================================
+  For more details, see README.md
+================================================================================

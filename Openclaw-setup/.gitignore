@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Node
+node_modules/
+
+# Database (local runtime data — don't commit the live DB)
+*.sqlite
+*.sqlite3
+
+# Env vars (secrets) — copy .env.example to .env and fill in locally
+.env
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# SD3 model files (large binary ONNX models — download on first run)
+skills/sd3-image-generation/Model_Bins/
+skills/sd3-image-generation/qnn_ctx_json/
+
+# OpenClaw workspace (created by setup.ps1)
+~/.openclaw/
+
+# Logs
+*.log
+openclaw-gateway.log
