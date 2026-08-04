@@ -117,8 +117,14 @@ export default definePluginEntry({
         const transcodeTimeoutMs = Math.min(MAX_TRANSCODE_SHARE_MS, Math.floor(totalTimeoutMs / 4));
         const invokeTimeoutMs = totalTimeoutMs - transcodeTimeoutMs;
 
+        // Temporary stage timing to find where end-to-end latency actually
+        // goes (transcode vs. base64 encode vs. the node round-trip) before
+        // optimizing any of them further.
+        const t0 = Date.now();
         const wavBuffer = await transcodeToWav16kMono(req.buffer, transcodeTimeoutMs);
+        const t1 = Date.now();
         const audioBase64 = wavBuffer.toString("base64");
+        const t2 = Date.now();
 
         const result = await api.runtime.nodes.invoke({
           nodeId,
@@ -126,6 +132,11 @@ export default definePluginEntry({
           params: { audioBase64 },
           timeoutMs: invokeTimeoutMs,
         });
+        const t3 = Date.now();
+        api.logger.info(
+          `whisper-node-bridge timing: inputBytes=${req.buffer.length} wavBytes=${wavBuffer.length} ` +
+            `transcodeMs=${t1 - t0} base64EncodeMs=${t2 - t1} nodeInvokeMs=${t3 - t2} totalMs=${t3 - t0}`,
+        );
 
         // api.runtime.nodes.invoke() resolves to the gateway's node.invoke
         // response envelope ({ ok, nodeId, command, payload, payloadJSON }),
