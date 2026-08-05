@@ -221,24 +221,37 @@ async def _collect_upstream(response: httpx.Response):
     return committed_tcs, full_text, model, cid
 
 
-# ── Core proxy stream generator ───────────────────────────────────────────────
+# ── Shared upstream caller (always streams internally to fix tool calls) ───────
 
-async def _proxy_stream(body: dict) -> AsyncIterator[str]:
+async def _call_upstream(body: dict):
+    """
+    Always fetches upstream with stream=True so we can intercept and fix
+    plain-text tool calls. Returns (native_tcs, full_text, model, cid).
+    """
     upstream_url = f"{UPSTREAM_BASE.rstrip('/')}/chat/completions"
     headers = {"Content-Type": "application/json"}
     if UPSTREAM_API_KEY:
         headers["Authorization"] = f"Bearer {UPSTREAM_API_KEY}"
 
-    body["stream"] = True  # always request streaming from upstream
+    upstream_body = dict(body)
+    upstream_body["stream"] = True  # always stream upstream so we can intercept
 
     async with httpx.AsyncClient(timeout=httpx.Timeout(30, read=120), verify=False) as client:
-        async with client.stream("POST", upstream_url, headers=headers, json=body) as resp:
+        async with client.stream("POST", upstream_url, headers=headers, json=upstream_body) as resp:
             if resp.status_code != 200:
                 raw = await resp.aread()
-                yield _sse({"error": {"message": f"Upstream HTTP {resp.status_code}: {raw.decode()[:300]}"}})
-                return
+                raise RuntimeError(f"Upstream HTTP {resp.status_code}: {raw.decode()[:300]}")
+            return await _collect_upstream(resp)
 
-            native_tcs, full_text, model, cid = await _collect_upstream(resp)
+
+# ── Core proxy stream generator ───────────────────────────────────────────────
+
+async def _proxy_stream(body: dict) -> AsyncIterator[str]:
+    try:
+        native_tcs, full_text, model, cid = await _call_upstream(body)
+    except RuntimeError as e:
+        yield _sse({"error": {"message": str(e)}})
+        return
 
     # Case 1: upstream already returned proper structured tool_calls
     if native_tcs:
@@ -247,14 +260,14 @@ async def _proxy_stream(body: dict) -> AsyncIterator[str]:
         return
 
     if full_text:
-        # Case 2: upstream returned tool calls as plain text — fix and re-emit
+        # Case 2: plain-text tool calls — parse and re-emit as proper SSE
         parsed_tcs = _parse_text_tool_calls(full_text)
         if parsed_tcs:
             for chunk in _tool_calls_to_sse(parsed_tcs, model, cid):
                 yield chunk
             return
 
-        # Case 3: plain text reply, no tool calls — stream it back as-is
+        # Case 3: plain text reply — stream it back
         base = {"id": cid, "object": "chat.completion.chunk", "model": model}
         text_chunk = dict(base)
         text_chunk["choices"] = [{
@@ -263,23 +276,101 @@ async def _proxy_stream(body: dict) -> AsyncIterator[str]:
             "finish_reason": None,
         }]
         yield _sse(text_chunk)
-
         stop_chunk = dict(base)
         stop_chunk["choices"] = [{"index": 0, "delta": {}, "finish_reason": "stop"}]
         yield _sse(stop_chunk)
         yield "data: [DONE]\n\n"
 
 
+def _tcs_to_openai_message(tcs: list) -> list:
+    """Convert internal tool call dicts to OpenAI message.tool_calls format."""
+    return [
+        {
+            "id": tc["id"],
+            "type": "function",
+            "function": {"name": tc["name"], "arguments": tc["arguments_str"]},
+        }
+        for tc in tcs
+    ]
+
+
+# ── Core proxy non-stream handler ─────────────────────────────────────────────
+
+async def _proxy_json(body: dict) -> dict:
+    try:
+        native_tcs, full_text, model, cid = await _call_upstream(body)
+    except RuntimeError as e:
+        return {"error": {"message": str(e)}}
+
+    # Case 1: proper structured tool_calls from upstream
+    if native_tcs:
+        return {
+            "id": cid,
+            "object": "chat.completion",
+            "model": model,
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": _tcs_to_openai_message(native_tcs),
+                },
+                "finish_reason": "tool_calls",
+            }],
+        }
+
+    if full_text:
+        # Case 2: plain-text tool calls — parse and return as JSON
+        parsed_tcs = _parse_text_tool_calls(full_text)
+        if parsed_tcs:
+            return {
+                "id": cid,
+                "object": "chat.completion",
+                "model": model,
+                "choices": [{
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": _tcs_to_openai_message(parsed_tcs),
+                    },
+                    "finish_reason": "tool_calls",
+                }],
+            }
+
+        # Case 3: plain text reply
+        return {
+            "id": cid,
+            "object": "chat.completion",
+            "model": model,
+            "choices": [{
+                "index": 0,
+                "message": {"role": "assistant", "content": full_text},
+                "finish_reason": "stop",
+            }],
+        }
+
+    return {"error": {"message": "Empty response from upstream"}}
+
+
 # ── FastAPI routes ────────────────────────────────────────────────────────────
+
+from fastapi.responses import JSONResponse
 
 @app.post("/v1/chat/completions")
 async def chat_completions(request: Request):
     body = await request.json()
-    return StreamingResponse(
-        _proxy_stream(body),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
+    wants_stream = body.get("stream", False)
+
+    if wants_stream:
+        return StreamingResponse(
+            _proxy_stream(body),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+    else:
+        result = await _proxy_json(body)
+        return JSONResponse(content=result)
 
 
 @app.get("/v1/models")
