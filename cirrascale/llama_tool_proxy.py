@@ -221,6 +221,71 @@ async def _collect_upstream(response: httpx.Response):
     return committed_tcs, full_text, model, cid
 
 
+# ── Tool injection into system prompt (Llama chat template workaround) ────────
+
+def _tools_to_system_text(tools: list) -> str:
+    """
+    Render OpenAI tools array as the plain-text block that Llama 3.3
+    expects to see in its system prompt when the server has no tool-call parser.
+
+    Llama 3.3 was trained to output:
+        {"type": "function", "name": "<name>", "parameters": {...}}
+
+    So we describe tools in a way that matches that trained format exactly.
+    """
+    lines = [
+        "You have access to the following tools. When you need to call a tool, "
+        "output ONLY a JSON object on a single line with this exact format and nothing else:\n"
+        '{"type": "function", "name": "<tool_name>", "parameters": <arguments_object>}\n'
+        "Do not add any explanation before or after the JSON. "
+        "Do not call a tool unless it is needed.\n\n"
+        "Available tools:"
+    ]
+    for t in tools:
+        fn = t.get("function", t)
+        name = fn.get("name", "")
+        desc = fn.get("description", "")
+        params = fn.get("parameters", {})
+        lines.append(f"\n  Tool name: {name}")
+        if desc:
+            lines.append(f"  Description: {desc}")
+        props = params.get("properties", {})
+        required = params.get("required", [])
+        if props:
+            lines.append("  Parameters:")
+            for pname, pschema in props.items():
+                req = " (required)" if pname in required else " (optional)"
+                pdesc = pschema.get("description", "")
+                ptype = pschema.get("type", "any")
+                lines.append(f"    - {pname} ({ptype}){req}: {pdesc}")
+    return "\n".join(lines)
+
+
+def _inject_tools_into_system_prompt(body: dict) -> dict:
+    """
+    If the request contains a `tools` array, remove it from the body and
+    inject the tool descriptions into the system message instead.
+    This is necessary when the upstream vLLM has no --tool-call-parser configured.
+    """
+    tools = body.get("tools")
+    if not tools:
+        return body
+
+    tool_text = _tools_to_system_text(tools)
+    messages = [dict(m) for m in body.get("messages", [])]
+
+    # Append tool block to existing system message, or prepend a new one
+    if messages and messages[0].get("role") == "system":
+        messages[0] = dict(messages[0])
+        messages[0]["content"] = messages[0]["content"] + "\n\n" + tool_text
+    else:
+        messages.insert(0, {"role": "system", "content": tool_text})
+
+    new_body = {k: v for k, v in body.items() if k not in ("tools", "tool_choice")}
+    new_body["messages"] = messages
+    return new_body
+
+
 # ── Shared upstream caller (always streams internally to fix tool calls) ───────
 
 async def _call_upstream(body: dict):
@@ -233,7 +298,7 @@ async def _call_upstream(body: dict):
     if UPSTREAM_API_KEY:
         headers["Authorization"] = f"Bearer {UPSTREAM_API_KEY}"
 
-    upstream_body = dict(body)
+    upstream_body = _inject_tools_into_system_prompt(dict(body))
     upstream_body["stream"] = True  # always stream upstream so we can intercept
 
     async with httpx.AsyncClient(timeout=httpx.Timeout(30, read=120), verify=False) as client:

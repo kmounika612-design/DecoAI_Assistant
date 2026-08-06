@@ -1,18 +1,11 @@
 <#
 .SYNOPSIS
   Automates the PC-side OpenClaw setup for pairing the WhisperTelegramNode
-  Android app as a Gateway node: LAN bind + firewall, pairing wait/approve,
-  whisper-node-bridge plugin install/config, and a final verification pass.
+  Android app as a Gateway node
 
 .DESCRIPTION
-  Mirrors README.md steps 2-3. Building/installing the Android app and
-  pushing NPU model files to the device stay manual (one-time, hardware-
-  specific steps) - this script only automates the PC/gateway side, which
-  is what actually breaks in repeatable, scriptable ways (missed restarts,
-  firewall rules, stale device ids, config key placement).
-
-  Idempotent: every phase reads current state via `--json` before mutating,
-  so re-running after a partial failure or a phone reinstall is safe.
+  Sets Openclaw device pairing, node approval, gateway restart which are 
+  needed for the communication of the device
 
 .PARAMETER PluginPath
   Path to the openclaw-whisper-node-bridge plugin source directory.
@@ -20,9 +13,22 @@
 .PARAMETER PairingTimeoutSeconds
   How long to wait for a pending node pairing request before giving up.
 
+.PARAMETER NodeId
+  Pin setup to a specific node id instead of auto-selecting. Only needed when
+  more than one node is connected (a desktop node plus a phone, two phones, a
+  stale session) and you want to be explicit about which one gets configured.
+
+.PARAMETER PairNew
+  Force the pairing wait even when another node is already paired and
+  connected. This is how a second device gets added: without it the script
+  short-circuits on the node that is already up and the new phone never
+  gets approved.
+
 .PARAMETER SkipFirewall
   Skip the Windows Firewall rule step (use if you manage firewall rules
-  yourself, or already have one).
+  yourself, or already have one). Creating the rule is the only step that
+  needs Administrator; without this switch the script asks for elevation
+  for that one step via UAC and runs everything else as the current user.
 
 .EXAMPLE
   .\setup-node.ps1
@@ -32,10 +38,20 @@
 
 [CmdletBinding()]
 param(
-    [string]$PluginPath = (Join-Path $PSScriptRoot "openclaw-whisper-node-bridge"),
+    [string]$PluginPath,
     [int]$PairingTimeoutSeconds = 300,
+    [string]$NodeId,
+    [switch]$PairNew,
     [switch]$SkipFirewall
 )
+
+
+if (-not $PluginPath) {
+    $PluginPath = Join-Path $PSScriptRoot "openclaw-whisper-node-bridge"
+}
+
+
+$script:PinnedNodeId = $NodeId
 
 $ErrorActionPreference = "Stop"
 $GatewayPort = 18789
@@ -68,9 +84,7 @@ function Write-Fail([string]$Text) {
     Write-Host "  [FAIL] $Text" -ForegroundColor Red
 }
 
-# Runs `openclaw <args> --json` and parses stdout as JSON. openclaw's CLI
-# banner is suppressed whenever --json is present (src/cli/banner.ts:121),
-# so stdout should be clean JSON with no decorative preamble to strip.
+
 function Invoke-OpenClawJson {
     param(
         [Parameter(Mandatory)][string[]]$Args
@@ -90,8 +104,7 @@ function Invoke-OpenClawJson {
     return [pscustomobject]@{ ExitCode = $exitCode; Json = $json; Raw = $text }
 }
 
-# Runs `openclaw <args>` without --json, for commands with no JSON mode
-# (plugins install/enable). Returns exit code + combined output text.
+
 function Invoke-OpenClawText {
     param(
         [Parameter(Mandatory)][string[]]$Args
@@ -101,10 +114,7 @@ function Invoke-OpenClawText {
     return [pscustomobject]@{ ExitCode = $exitCode; Raw = ($output | Out-String) }
 }
 
-# Writes a JSON5-compatible patch file and applies it via `config patch
-# --file`, which reads from disk - this is what avoids PowerShell's
-# double-quote mangling on every inline --strict-json call we hit manually
-# earlier this session.
+
 function Apply-ConfigPatch {
     param(
         [Parameter(Mandatory)]$PatchObject
@@ -129,6 +139,83 @@ function Get-ConfigValue([string]$Path) {
         return $null
     }
     return $result.Json
+}
+
+function Test-IsElevated {
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+
+function New-GatewayFirewallRule {
+    if (Test-IsElevated) {
+        try {
+            New-NetFirewallRule -DisplayName $FirewallRuleName -Direction Inbound `
+                -Protocol TCP -LocalPort $GatewayPort -Action Allow -Profile Any | Out-Null
+            return $true
+        }
+        catch {
+            Write-Warn "Rule creation failed even though this session is elevated: $($_.Exception.Message)"
+            return $false
+        }
+    }
+
+    Write-Step "Not running as Administrator - requesting elevation for the firewall rule only (accept the UAC prompt)"
+    $command = "`$ErrorActionPreference = 'Stop'; try { New-NetFirewallRule -DisplayName '$FirewallRuleName' -Direction Inbound -Protocol TCP -LocalPort $GatewayPort -Action Allow -Profile Any | Out-Null; exit 0 } catch { exit 1 }"
+    try {
+        $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
+        $proc = Start-Process -FilePath "powershell.exe" -Verb RunAs -Wait -PassThru -ArgumentList @(
+            "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", $encoded)
+        if ($proc.ExitCode -eq 0) {
+            return $true
+        }
+        Write-Warn "Elevated helper exited with code $($proc.ExitCode)"
+        return $false
+    }
+    catch {
+        # Declining the UAC prompt throws here rather than returning an exit code.
+        Write-Warn "Elevation was declined or unavailable: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+
+function Set-NodeCommandAllowlist {
+    $existing = @()
+    $nodesConfig = Get-ConfigValue "gateway.nodes"
+    if ($nodesConfig -and $nodesConfig.PSObject.Properties.Name -contains "commands") {
+        $commandsConfig = $nodesConfig.commands
+        if ($commandsConfig -and $commandsConfig.PSObject.Properties.Name -contains "allow") {
+            $existing = @($commandsConfig.allow)
+        }
+    }
+
+    if ($existing -contains $RequiredCommand) {
+        Write-Ok "gateway.nodes.commands.allow already allows $RequiredCommand"
+        return $false
+    }
+
+    $merged = @($existing + $RequiredCommand | Where-Object { $_ } | Select-Object -Unique)
+    $was = if ($existing.Count) { $existing -join ", " } else { "empty" }
+    Write-Step "Adding $RequiredCommand to gateway.nodes.commands.allow (was: $was)"
+    Apply-ConfigPatch -PatchObject @{ gateway = @{ nodes = @{ commands = @{ allow = $merged } } } }
+    return $true
+}
+
+
+function Get-MergedMediaModels {
+    $existing = @()
+    $media = Get-ConfigValue "tools.media"
+    if ($media -and $media.PSObject.Properties.Name -contains "models") {
+        $existing = @($media.models)
+    }
+
+    
+    if ($existing | Where-Object { $_.provider -eq $PluginId }) {
+        return $existing
+    }
+    return @($existing + @{ provider = $PluginId; capabilities = @("audio") })
 }
 
 $script:PhaseResults = [ordered]@{}
@@ -160,16 +247,31 @@ function Invoke-Phase1-GatewayConnectivity {
         Write-Ok "gateway.bind is already 'lan'"
     }
 
+
+    if (Set-NodeCommandAllowlist) {
+        $needsRestart = $true
+    }
+
     if (-not $SkipFirewall) {
         $existingRule = Get-NetFirewallRule -DisplayName $FirewallRuleName -ErrorAction SilentlyContinue
         if (-not $existingRule) {
             Write-Step "No firewall rule found for port $GatewayPort; creating one"
-            New-NetFirewallRule -DisplayName $FirewallRuleName -Direction Inbound `
-                -Protocol TCP -LocalPort $GatewayPort -Action Allow -Profile Any | Out-Null
-            Write-Ok "Created inbound firewall rule '$FirewallRuleName'"
+            if (New-GatewayFirewallRule) {
+                Write-Ok "Created inbound firewall rule '$FirewallRuleName'"
+                $script:PhaseResults["Firewall rule"] = $true
+            }
+            else {
+
+                Write-Warn "Could not create the firewall rule; continuing without it."
+                Write-Warn "If pairing times out in Phase 2, run this once in an elevated PowerShell:"
+                Write-Host "    New-NetFirewallRule -DisplayName '$FirewallRuleName' -Direction Inbound -Protocol TCP -LocalPort $GatewayPort -Action Allow -Profile Any"
+                Write-Warn "then re-run this script with -SkipFirewall."
+                $script:PhaseResults["Firewall rule"] = "warn"
+            }
         }
         else {
             Write-Ok "Firewall rule '$FirewallRuleName' already exists"
+            $script:PhaseResults["Firewall rule"] = $true
         }
     }
     else {
@@ -230,12 +332,15 @@ function Get-PendingNodeRequest {
     if (-not $list.Json -or -not $list.Json.pending) {
         return $null
     }
-    return $list.Json.pending | Where-Object { $_.role -eq "node" } | Select-Object -First 1
+    $nodeRequests = $list.Json.pending | Where-Object { $_.role -eq "node" }
+    if ($script:PinnedNodeId) {
+        $nodeRequests = $nodeRequests | Where-Object { $_.deviceId -eq $script:PinnedNodeId }
+    }
+    return $nodeRequests | Select-Object -First 1
 }
 
 function Get-RequestId($PendingEntry) {
-    # Defensive: confirmed field name is requestId, but fail loudly instead
-    # of silently picking the wrong one if a future version renames it.
+
     if ($PendingEntry.PSObject.Properties.Name -contains "requestId") {
         return $PendingEntry.requestId
     }
@@ -246,18 +351,96 @@ function Get-RequestId($PendingEntry) {
     throw "unknown pending-entry shape"
 }
 
+
+function Resolve-NodeReapproval {
+    param([Parameter(Mandatory)][string]$NodeId)
+
+    $describe = Invoke-OpenClawJson -Args @("nodes", "describe", "--node", $NodeId)
+    if (-not $describe.Json -or $describe.Json.approvalState -ne "pending-reapproval") {
+        return $false
+    }
+
+    $requestId = $describe.Json.pendingRequestId
+    if (-not $requestId) {
+        Write-Warn "Node is pending re-approval but exposed no pendingRequestId"
+        return $false
+    }
+
+    $declared = @($describe.Json.pendingDeclaredCommands) -join ", "
+    Write-Step "Node is pending re-approval (declares: $declared); approving request $requestId"
+    $approve = Invoke-OpenClawJson -Args @("nodes", "approve", $requestId)
+    if ($approve.ExitCode -ne 0) {
+        Write-Warn "nodes approve failed:`n$($approve.Raw)"
+        return $false
+    }
+    Write-Ok "Re-approved the node's declared command surface"
+    return $true
+}
+
+
+function Select-TargetNode {
+    param($Nodes)
+
+    $connected = @($Nodes | Where-Object { $_.connected -eq $true })
+    if ($connected.Count -eq 0) { return $null }
+
+    if ($script:PinnedNodeId) {
+        $pinned = $connected | Where-Object { $_.nodeId -eq $script:PinnedNodeId } | Select-Object -First 1
+        if ($pinned) {
+            Write-Step "Using pinned node $($script:PinnedNodeId)"
+            return $pinned
+        }
+
+        Write-Step "Pinned node $($script:PinnedNodeId) is not connected yet; waiting for it to pair"
+        return $null
+    }
+
+    if ($connected.Count -eq 1) { return $connected[0] }
+
+
+    $candidates = @($connected | Where-Object {
+        $describe = Invoke-OpenClawJson -Args @("nodes", "describe", "--node", $_.nodeId)
+        $describe.Json -and (
+            (@($describe.Json.commands) -contains $RequiredCommand) -or
+            (@($describe.Json.pendingDeclaredCommands) -contains $RequiredCommand)
+        )
+    })
+
+    if ($candidates.Count -eq 1) {
+        Write-Step "Selected the only node offering ${RequiredCommand}: $($candidates[0].nodeId)"
+        return $candidates[0]
+    }
+    if ($candidates.Count -gt 1) {
+        Write-Warn "Multiple connected nodes offer ${RequiredCommand}: $((@($candidates.nodeId) -join ', '))"
+        Write-Warn "Using the first. Pin one explicitly with -NodeId <id>."
+        return $candidates[0]
+    }
+
+    Write-Warn "No connected node offers $RequiredCommand yet. Connected: $((@($connected.nodeId) -join ', '))"
+    Write-Warn "Using the first. Pin one explicitly with -NodeId <id> if that is the wrong device."
+    return $connected[0]
+}
+
 function Invoke-Phase2-PairingWaitApprove {
     Write-Phase "Phase 2: Node pairing"
 
-    # Already paired and connected from a prior run? Skip straight through.
-    $existingConnected = Invoke-OpenClawJson -Args @("nodes", "status")
+
     $alreadyConnectedNode = $null
-    if ($existingConnected.Json -and $existingConnected.Json.nodes) {
-        $alreadyConnectedNode = $existingConnected.Json.nodes | Where-Object { $_.connected -eq $true } | Select-Object -First 1
+    if ($PairNew) {
+        Write-Step "-PairNew: ignoring any already-connected node and waiting for a new pairing request"
+    }
+    else {
+        $existingConnected = Invoke-OpenClawJson -Args @("nodes", "status")
+        if ($existingConnected.Json -and $existingConnected.Json.nodes) {
+            $alreadyConnectedNode = Select-TargetNode -Nodes $existingConnected.Json.nodes
+        }
     }
     if ($alreadyConnectedNode) {
         # nodes status --json returns nodeId, not id (src/cli/nodes-cli/register.status.ts).
         Write-Ok "A node is already paired and connected: $($alreadyConnectedNode.nodeId)"
+        # "connected" is not the same as "usable" - clear any held-back command
+        # surface before treating this phase as done.
+        Resolve-NodeReapproval -NodeId $alreadyConnectedNode.nodeId | Out-Null
         $script:PhaseResults["Node paired"] = $true
         $script:PhaseResults["Node connected"] = $true
         return $alreadyConnectedNode.nodeId
@@ -290,8 +473,22 @@ function Invoke-Phase2-PairingWaitApprove {
     }
 
     $requestId = Get-RequestId $pending
+
+
+    $nodeId = $pending.deviceId
+    if (-not $nodeId) {
+        Write-Fail "Pairing request carried no deviceId:`n$($pending | ConvertTo-Json -Depth 5)"
+        $script:PhaseResults["Node paired"] = $false
+        throw "unknown pending-entry shape"
+    }
+
+
     Write-Step "Approving pairing request $requestId"
     $approve = Invoke-OpenClawJson -Args @("devices", "approve", $requestId)
+    if ($approve.ExitCode -ne 0) {
+        Write-Step "devices approve did not take it; retrying with nodes approve"
+        $approve = Invoke-OpenClawJson -Args @("nodes", "approve", $requestId)
+    }
     if ($approve.ExitCode -ne 0) {
         Write-Fail "Approval failed:`n$($approve.Raw)"
         $script:PhaseResults["Node paired"] = $false
@@ -300,7 +497,6 @@ function Invoke-Phase2-PairingWaitApprove {
     Write-Ok "Approved"
     $script:PhaseResults["Node paired"] = $true
 
-    $nodeId = $pending.deviceId
     $connected = $false
     for ($i = 0; $i -lt 10; $i++) {
         $describe = Invoke-OpenClawJson -Args @("nodes", "describe", "--node", $nodeId)
@@ -337,11 +533,11 @@ function Invoke-Phase3-PluginInstallConfig {
         throw "plugin path missing"
     }
 
-    $pluginsList = Invoke-OpenClawJson -Args @("plugins", "list", "--enabled", "--verbose")
+
+    $pluginsList = Invoke-OpenClawJson -Args @("plugins", "list", "--verbose")
     $installedEntry = $null
     if ($pluginsList.Json -and $pluginsList.Json.plugins) {
-        # plugins list --json wraps the array as { plugins: [PluginRecord, ...] }
-        # (src/cli/plugins-list-command.ts) - unwrap before filtering.
+
         $installedEntry = $pluginsList.Json.plugins | Where-Object {
             ($_.id -eq $PluginId) -or ($_.name -eq $PluginId)
         } | Select-Object -First 1
@@ -349,7 +545,8 @@ function Invoke-Phase3-PluginInstallConfig {
 
     if (-not $installedEntry) {
         Write-Step "Installing plugin from $PluginPath"
-        $install = Invoke-OpenClawText -Args @("plugins", "install", "-l", $PluginPath, "--force")
+
+        $install = Invoke-OpenClawText -Args @("plugins", "install", "-l", $PluginPath)
         if ($install.ExitCode -ne 0) {
             Write-Fail "Plugin install failed:`n$($install.Raw)"
             $script:PhaseResults["Plugin installed"] = $false
@@ -366,16 +563,6 @@ function Invoke-Phase3-PluginInstallConfig {
     }
     $script:PhaseResults["Plugin installed"] = $true
 
-    # Detect old (allowCommands) vs new (commands.allow) node-command-allow
-    # key shape before writing - README.md/TESTING.md both call out this
-    # exact version-drift trap.
-    $nodesConfig = Get-ConfigValue "gateway.nodes"
-    $useLegacyShape = $false
-    if ($nodesConfig -and ($nodesConfig.PSObject.Properties.Name -contains "allowCommands" -or
-                           $nodesConfig.PSObject.Properties.Name -contains "denyCommands")) {
-        $useLegacyShape = $true
-    }
-
     $patch = [ordered]@{
         plugins = @{
             entries = @{
@@ -389,9 +576,7 @@ function Invoke-Phase3-PluginInstallConfig {
         }
         tools = @{
             media = @{
-                models = @(
-                    @{ provider = "whisper-node-bridge"; capabilities = @("audio") }
-                )
+                models = @(Get-MergedMediaModels)
                 audio  = @{
                     enabled        = $true
                     timeoutSeconds = 120
@@ -400,16 +585,9 @@ function Invoke-Phase3-PluginInstallConfig {
         }
     }
 
-    if ($useLegacyShape) {
-        Write-Step "Detected legacy gateway.nodes.allowCommands shape"
-        $patch.gateway = @{ nodes = @{ allowCommands = @($RequiredCommand) } }
-    }
-    else {
-        Write-Step "Using gateway.nodes.commands.allow shape"
-        $patch.gateway = @{ nodes = @{ commands = @{ allow = @($RequiredCommand) } } }
-    }
+    Set-NodeCommandAllowlist | Out-Null
 
-    Write-Step "Writing combined config patch (plugin config, command allowlist, media provider)"
+    Write-Step "Writing plugin config patch (plugin nodeId, media provider)"
     Apply-ConfigPatch -PatchObject $patch
 
     Write-Step "Restarting gateway to apply plugin/config changes"
@@ -439,6 +617,42 @@ function Invoke-Phase4-Verification {
     else { Write-Fail "Node not connected after restart" }
     $script:PhaseResults["Node connected (post-restart)"] = $connected
 
+
+    $declaresCommand = $false
+    $lastDescribe = $null
+    for ($i = 0; $i -lt 10; $i++) {
+        $describe = Invoke-OpenClawJson -Args @("nodes", "describe", "--node", $NodeId)
+        $lastDescribe = $describe.Json
+        if ($lastDescribe -and (@($lastDescribe.commands) -contains $RequiredCommand)) {
+            $declaresCommand = $true
+            break
+        }
+        if ($lastDescribe -and $lastDescribe.approvalState -eq "pending-reapproval") {
+            Resolve-NodeReapproval -NodeId $NodeId | Out-Null
+        }
+        Start-Sleep -Seconds 2
+    }
+
+    if ($declaresCommand) {
+        Write-Ok "Node declares $RequiredCommand (approvalState: $($lastDescribe.approvalState))"
+    }
+    else {
+        Write-Fail "Node does not declare $RequiredCommand - dispatch will fail with 'node did not declare commands'"
+        if ($lastDescribe) {
+            Write-Warn "  approvalState : $($lastDescribe.approvalState)"
+            Write-Warn "  commands      : $((@($lastDescribe.commands) -join ', '))"
+            if ($lastDescribe.pendingDeclaredCommands) {
+                Write-Warn "  pending       : $((@($lastDescribe.pendingDeclaredCommands) -join ', '))"
+                Write-Warn "Approve it with: openclaw nodes approve $($lastDescribe.pendingRequestId)"
+            }
+            else {
+                Write-Warn "The app advertised no commands on connect - check the node app build."
+                Write-Warn "Watch the connect frame with: adb logcat -s GatewayNodeClient:*"
+            }
+        }
+    }
+    $script:PhaseResults["Node declares $RequiredCommand"] = $declaresCommand
+
     $providers = Invoke-OpenClawJson -Args @("capability", "audio", "providers")
     $providerEntry = $null
     if ($providers.Json) {
@@ -461,21 +675,31 @@ function Invoke-Phase4-Verification {
     else { Write-Fail "ffmpeg not found on PATH (required by whisper-node-bridge)" }
     $script:PhaseResults["ffmpeg present"] = $ffmpegOk
 
+
     $doctor = Invoke-OpenClawJson -Args @("doctor", "--lint")
-    $doctorFindings = @()
+    $doctorErrors = @()
+    $doctorWarnings = @()
     if ($doctor.Json -and $doctor.Json.findings) {
-        $doctorFindings = $doctor.Json.findings | Where-Object { $_.severity -in @("warning", "error") }
+        $doctorErrors = @($doctor.Json.findings | Where-Object { $_.severity -eq "error" })
+        $doctorWarnings = @($doctor.Json.findings | Where-Object { $_.severity -eq "warning" })
     }
-    if ($doctorFindings.Count -eq 0) {
-        Write-Ok "doctor --lint: no warning/error findings"
+
+    foreach ($finding in ($doctorErrors + $doctorWarnings)) {
+        Write-Host "    [$($finding.severity)] $($finding.checkId): $($finding.message)"
+    }
+
+    if ($doctorErrors.Count -gt 0) {
+        Write-Fail "doctor --lint reported $($doctorErrors.Count) error finding(s)"
+        $script:PhaseResults["Doctor clean"] = $false
+    }
+    elseif ($doctorWarnings.Count -gt 0) {
+        Write-Warn "doctor --lint: $($doctorWarnings.Count) warning(s), no errors - review them, they do not block setup"
+        $script:PhaseResults["Doctor clean"] = "warn"
     }
     else {
-        Write-Warn "doctor --lint findings:"
-        foreach ($finding in $doctorFindings) {
-            Write-Host "    [$($finding.severity)] $($finding.checkId): $($finding.message)"
-        }
+        Write-Ok "doctor --lint: no findings"
+        $script:PhaseResults["Doctor clean"] = $true
     }
-    $script:PhaseResults["Doctor clean"] = ($doctorFindings.Count -eq 0)
 }
 
 # ---------------------------------------------------------------------------
@@ -483,12 +707,19 @@ function Invoke-Phase4-Verification {
 # ---------------------------------------------------------------------------
 
 function Write-Summary {
+
+    param([switch]$Aborted)
+
     Write-Host ""
     Write-Host "== Summary ==" -ForegroundColor Cyan
     $allPass = $true
     foreach ($key in $script:PhaseResults.Keys) {
         $value = $script:PhaseResults[$key]
-        if ($value) {
+
+        if ($value -is [string] -and $value -eq "warn") {
+            Write-Host ("  [WARN] {0}" -f $key) -ForegroundColor Yellow
+        }
+        elseif ($value) {
             Write-Host ("  [PASS] {0}" -f $key) -ForegroundColor Green
         }
         else {
@@ -497,6 +728,10 @@ function Write-Summary {
         }
     }
     Write-Host ""
+    if ($Aborted) {
+        Write-Host "Setup did not finish - the checks above are only the phases that ran." -ForegroundColor Red
+        return $false
+    }
     if ($allPass) {
         Write-Host "All checks passed. Send a Telegram voice note to test end to end." -ForegroundColor Green
     }
@@ -520,6 +755,6 @@ try {
 catch {
     Write-Host ""
     Write-Fail "Setup stopped: $($_.Exception.Message)"
-    Write-Summary | Out-Null
+    Write-Summary -Aborted | Out-Null
     exit 1
 }
