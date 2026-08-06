@@ -1,0 +1,13 @@
+{
+  "name": "openclaw-decoai-ops-autorun",
+  "version": "1.0.0",
+  "private": true,
+  "description": "OpenClaw plugin: run inventory-management and cost-estimation CLIs directly, without relying on model tool calls.",
+  "type": "module",
+  "openclaw": {
+    "extensions": ["./src/index.ts"]
+  },
+  "dependencies": {
+    "openclaw": "*"
+  }
+}

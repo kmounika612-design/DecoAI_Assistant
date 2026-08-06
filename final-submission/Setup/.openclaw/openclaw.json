@@ -1,0 +1,185 @@
+{
+  "skills": {
+    "allowBundled": [
+      "image-generation"
+    ],
+    "load": {
+      "extraDirs": [
+        "C:\\Users\\qc_de\\.openclaw\\workspace\\Skills"
+      ]
+    },
+    "entries": {
+      "image-generation": {
+        "enabled": true
+      }
+    }
+  },
+  "wizard": {
+    "lastRunAt": "2026-08-06T19:43:52.311Z",
+    "lastRunVersion": "2026.7.1-2",
+    "lastRunCommand": "onboard",
+    "lastRunMode": "local",
+    "securityAcknowledgedAt": "2026-08-03T18:53:00.424Z"
+  },
+  "meta": {
+    "lastTouchedVersion": "2026.7.1-2",
+    "lastTouchedAt": "2026-08-06T19:43:52.380Z"
+  },
+  "agents": {
+    "defaults": {
+      "workspace": "C:\\Users\\qc_de\\.openclaw\\workspace",
+      "experimental": {
+        "localModelLean": true
+      },
+      "model": {
+        "primary": "anthropic/claude-sonnet-5",
+        "fallbacks": []
+      },
+      "models": {
+        "custom-aisuite-cirrascale-com/Llama-3.1-8B": {
+          "alias": "ai100_model"
+        },
+        "anthropic/claude-sonnet-5": {},
+        "cirrascale-ind/Llama-3.3-70B": {},
+        "custom-localhost-8100/Llama-3.3-70B": {
+          "alias": "proxy_model"
+        },
+        "anthropic/claude-opus-4-8": {}
+      }
+    }
+  },
+  "gateway": {
+    "mode": "local",
+    "auth": {
+      "mode": "token",
+      "token": "ab073d7ebd839717105e1661660b227dc75bb4137f1cab6d"
+    },
+    "port": 18789,
+    "bind": "lan",
+    "tailscale": {
+      "mode": "off",
+      "resetOnExit": false
+    },
+    "controlUi": {
+      "allowInsecureAuth": true,
+      "allowedOrigins": [
+        "http://localhost:18789",
+        "http://127.0.0.1:18789"
+      ]
+    },
+    "nodes": {
+      "denyCommands": [
+        "camera.snap",
+        "camera.clip",
+        "screen.record",
+        "contacts.add",
+        "calendar.add",
+        "reminders.add",
+        "sms.send",
+        "sms.search"
+      ],
+      "allowCommands": [
+        "whisper.transcribe"
+      ]
+    }
+  },
+  "models": {
+    "mode": "merge",
+    "providers": {}
+  },
+  "session": {
+    "dmScope": "per-channel-peer"
+  },
+  "messages": {
+    "visibleReplies": "message_tool"
+  },
+  "plugins": {
+    "entries": {
+      "telegram": {
+        "enabled": true
+      },
+      "whisper-node-bridge": {
+        "enabled": true,
+        "config": {
+          "nodeId": "6174957657c271a064e3cc564f424bd47a99f39c9878cc3734b59c4cb3b0e49f",
+          "timeoutMs": 120000
+        }
+      },
+      "anthropic": {
+        "enabled": true
+      }
+    },
+    "load": {
+      "paths": [
+        "C:\\Users\\qc_de\\Desktop\\DecoAI Assistant\\openclaw-whisper-node-bridge"
+      ]
+    }
+  },
+  "channels": {
+    "telegram": {
+      "enabled": true,
+      "groups": {
+        "*": {
+          "requireMention": true
+        }
+      },
+      "botToken": "8614843084:AAH8uEJX8DvAEs9X94bDpNQnS_usxi5Yfus",
+      "dmPolicy": "open",
+      "allowFrom": [
+        "*"
+      ],
+      "groupAllowFrom": [
+        "*"
+      ]
+    }
+  },
+  "hooks": {
+    "internal": {
+      "entries": {
+        "session-memory": {
+          "enabled": true
+        }
+      }
+    }
+  },
+  "commands": {
+    "ownerAllowFrom": [
+      "telegram:8701252343"
+    ]
+  },
+  "tools": {
+    "allow": [
+      "group:fs",
+      "exec",
+      "image_generate"
+    ],
+    "media": {
+      "concurrency": 2,
+      "models": [
+        {
+          "capabilities": [
+            "audio"
+          ],
+          "provider": "whisper-node-bridge"
+        }
+      ],
+      "audio": {
+        "timeoutSeconds": 120,
+        "enabled": true
+      }
+    },
+    "exec": {
+      "security": "full",
+      "ask": "off"
+    },
+    "profile": "coding"
+  },
+  "auth": {
+    "profiles": {
+      "anthropic:default": {
+        "provider": "anthropic",
+        "mode": "api_key"
+      }
+    }
+  }
+}

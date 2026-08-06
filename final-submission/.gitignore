@@ -1,0 +1,83 @@
+# ---- Secrets & credentials (never commit) ----
+.env
+.env.*
+!.env.example
+**/credentials/
+**/identity/device-auth.json
+**/identity/device.json
+**/devices/paired.json
+**/devices/pending.json
+*.pem
+*.key
+*secret*
+*token*
+
+# ---- Databases & runtime state ----
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.db
+**/state/
+**/workspace-attestations/
+*.attested
+
+# ---- Logs ----
+**/logs/
+*.log
+*.jsonl
+
+# ---- Backups / scratch copies ----
+*.bak
+*.bak-*
+*.bak.*
+*.orig
+*.tmp
+*~
+*.pre-model-swap
+*.last-good
+*.clobbered.*
+* - Copy.*
+*.lock
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+
+# ---- Node ----
+node_modules/
+npm-debug.log*
+yarn-error.log*
+.npm/
+
+# ---- Generated / cached agent artifacts ----
+**/sessions/
+**/media/inbound/
+**/media/outbound/
+**/completions/
+
+# ---- Model weights & large binaries ----
+*.onnx
+*.bin
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+*.gguf
+
+# ---- OS / editor cruft ----
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp

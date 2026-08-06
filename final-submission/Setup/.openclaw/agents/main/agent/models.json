@@ -1,0 +1,83 @@
+{
+  "providers": {
+    "cirrascale": {
+      "baseUrl": "https://aisuite.cirrascale.com/apis/v2",
+      "api": "openai-completions",
+      "apiKey": "f7637e0c-2f39-44c5-86ee-fe5ace50fc3c",
+      "models": [
+        {
+          "id": "Llama-3.1-8B",
+          "name": "Llama-3.1-8B",
+          "reasoning": false,
+          "input": [
+            "text"
+          ],
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "contextWindow": 16000,
+          "maxTokens": 8192,
+          "compat": {
+            "supportsUsageInStreaming": true
+          },
+          "params": {
+            "num_ctx": 16000
+          }
+        }
+      ]
+    },
+    "custom-aisuite-cirrascale-com": {
+      "baseUrl": "https://aisuite.cirrascale.com/apis/v2",
+      "api": "openai-completions",
+      "apiKey": "f7637e0c-2f39-44c5-86ee-fe5ace50fc3c",
+      "models": [
+        {
+          "id": "Llama-3.1-8B",
+          "name": "Llama-3.1-8B (Custom Provider)",
+          "contextWindow": 128000,
+          "maxTokens": 4096,
+          "input": [
+            "text"
+          ],
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "reasoning": false
+        }
+      ]
+    },
+    "cirrascale-ind": {
+      "baseUrl": "https://aisuite-indonesia.cirrascale.com/apis/v2",
+      "api": "openai-completions",
+      "apiKey": "b433eb73-9405-4481-a25d-803e1b052421",
+      "timeoutSeconds": 300,
+      "models": [
+        {
+          "id": "Llama-3.3-70B",
+          "name": "Llama-3.3-70B",
+          "reasoning": false,
+          "input": [
+            "text"
+          ],
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "contextWindow": 128000,
+          "maxTokens": 4096,
+          "compat": {
+            "supportsUsageInStreaming": true
+          }
+        }
+      ]
+    }
+  }
+}

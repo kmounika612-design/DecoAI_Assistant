@@ -1,0 +1,29 @@
+{
+  "generated_at": 1786046111,
+  "concepts": [
+    {
+      "concept": 1,
+      "prompt": "Elegant birthday party backdrop: a wall of vivid yellow satin drapery cascading in soft folds, framed by a lush garland of deep red roses and peonies twisting along the top edge, an organic cluster of glossy sapphire-blue balloons of varying sizes cascading down one side, warm golden spotlight from above, shallow depth of field, festive celebratory mood, professional event photography, ultra detailed, 4k",
+      "path": "Skills/image-generation/output/concept1_1786046044_0.png",
+      "abs_path": "C:\\Users\\qc_de\\.openclaw\\workspace\\Skills\\image-generation\\output\\concept1_1786046044_0.png"
+    },
+    {
+      "concept": 2,
+      "prompt": "Modern minimalist birthday setup: clean pastel-yellow paper backdrop with subtle texture, a balanced garland arch of cobalt-blue balloons in graduated sizes framing the top corners, small elegant bouquets of red flowers in glass vases on a white table below, soft diffused daylight, airy bright color palette, styled photography, high resolution",
+      "path": "Skills/image-generation/output/concept2_1786046063_0.png",
+      "abs_path": "C:\\Users\\qc_de\\.openclaw\\workspace\\Skills\\image-generation\\output\\concept2_1786046063_0.png"
+    },
+    {
+      "concept": 3,
+      "prompt": "Whimsical balloon-garland birthday scene: oversized yellow fabric backdrop with gentle drape, an asymmetrical swirl of blue balloons (navy, sky, cobalt) mixed with a few gold accents flowing from top-left to bottom-right, scattered red flower petals and a few red rose bunches along the base, warm string lights glowing softly, cozy party atmosphere, cinematic lighting, ultra detailed illustration style",
+      "path": "Skills/image-generation/output/concept3_1786046082_0.png",
+      "abs_path": "C:\\Users\\qc_de\\.openclaw\\workspace\\Skills\\image-generation\\output\\concept3_1786046082_0.png"
+    },
+    {
+      "concept": 4,
+      "prompt": "Bold glam birthday backdrop: rich mustard-yellow velvet curtain backdrop with dramatic folds, a grand arch of blue balloons in ombre shades from light to deep royal blue framing a birthday table, a striking centerpiece of red flowers (roses and gerberas) in a gold vase, gold number balloons subtly visible, moody warm-toned studio lighting, luxury event photography style, hyper-realistic, 4k",
+      "path": "Skills/image-generation/output/concept4_1786046111_0.png",
+      "abs_path": "C:\\Users\\qc_de\\.openclaw\\workspace\\Skills\\image-generation\\output\\concept4_1786046111_0.png"
+    }
+  ]
+}

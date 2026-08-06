@@ -1,0 +1,42 @@
+{
+  "id": "decor-image-autogen",
+  "name": "Decor Image Autogen",
+  "description": "Runs the image-generation CLI directly when the owner asks for decor ideas or images, and returns the real file. Removes the model's opportunity to fabricate an image path.",
+  "activation": {
+    "onStartup": true
+  },
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "description": "Master switch. Set false to fall back to normal model handling."
+      },
+      "workspaceDir": {
+        "type": "string",
+        "description": "Directory the CLI is run from. Defaults to the OpenClaw workspace."
+      },
+      "script": {
+        "type": "string",
+        "description": "Path to generate_cli.py, relative to workspaceDir."
+      },
+      "python": {
+        "type": "string",
+        "description": "Python executable. Default 'python'."
+      },
+      "model": {
+        "type": "string",
+        "description": "Cirrascale image model id. Default stabilityai/sdxl-turbo."
+      },
+      "size": {
+        "type": "string",
+        "description": "WIDTHxHEIGHT. Default 512x512."
+      },
+      "timeoutMs": {
+        "type": "number",
+        "description": "Max wall time for one generation. Default 120000."
+      }
+    },
+    "additionalProperties": false
+  }
+}

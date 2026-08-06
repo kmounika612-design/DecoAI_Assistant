@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find . -maxdepth 3 -not -path '*/\\\\.*')",
+      "Read(//c//**)",
+      "Read(//c/hackathon_code/sd3_ort_qnn/venv/**)",
+      "Bash(python -c \"import diffusers; print\\(diffusers.__version__\\); print\\(diffusers.__file__\\)\")",
+      "Bash(pip show *)",
+      "WebFetch(domain:pypi.org)",
+      "WebSearch",
+      "WebFetch(domain:learn.arm.com)",
+      "WebFetch(domain:github.com)",
+      "Bash(./venv/Scripts/python.exe -m pip download onnxruntime-qnn==2.4.0 -d \"C:/Users/qc_de/AppData/Local/Temp/claude/C--Users-qc-de-Desktop-DecoAI-Assistant-DecoAI-Assistant-pragnya-DecoAI-Assistant-pragnya-Stable-Diffusion-2-1/115ddc9d-bf8c-4e76-a5b7-7192d97e7533/scratchpad/wheel240\" --no-deps)",
+      "Bash('C:/Users/qc_de/Desktop/DecoAI Assistant/DecoAI_Assistant-pragnya/DecoAI_Assistant-pragnya/Stable-Diffusion-2-1/venv/Scripts/python.exe' -c ' *)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(./venv/Scripts/python.exe -c ' *)"
+    ]
+  }
+}

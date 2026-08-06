@@ -1,0 +1,30 @@
+{
+  "23477b1a964ad123bfcca00db4c46224e98ce70e079681f40961f971e1b8de01": {
+    "nodeId": "23477b1a964ad123bfcca00db4c46224e98ce70e079681f40961f971e1b8de01",
+    "token": "42UzElDbDkDL-XIOGd7o6FAJbW2ox6SVAU3GyFJwtEY",
+    "platform": "android",
+    "version": "1.0.0",
+    "deviceFamily": "android",
+    "caps": [],
+    "commands": [],
+    "remoteIp": "10.73.51.42",
+    "createdAtMs": 1785801837927,
+    "approvedAtMs": 1785801837927,
+    "lastConnectedAtMs": 1785869851149
+  },
+  "6174957657c271a064e3cc564f424bd47a99f39c9878cc3734b59c4cb3b0e49f": {
+    "nodeId": "6174957657c271a064e3cc564f424bd47a99f39c9878cc3734b59c4cb3b0e49f",
+    "token": "iBPqemy-ZEbGbse1uXzzpKcIhTmFCg00qowKkAJ-e-8",
+    "platform": "android",
+    "version": "1.0.0",
+    "deviceFamily": "android",
+    "caps": [],
+    "commands": [
+      "whisper.transcribe"
+    ],
+    "remoteIp": "192.168.1.129",
+    "createdAtMs": 1785881088723,
+    "approvedAtMs": 1785903651915,
+    "lastConnectedAtMs": 1786045921779
+  }
+}

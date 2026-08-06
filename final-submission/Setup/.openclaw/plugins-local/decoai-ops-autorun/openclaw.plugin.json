@@ -1,0 +1,18 @@
+{
+  "id": "decoai-ops-autorun",
+  "name": "DecoAI Ops Autorun",
+  "description": "Runs the inventory-management and cost-estimation CLIs directly for stock, reorder, photo-check, and cost questions, so figures come from the DB instead of the model's imagination.",
+  "activation": {
+    "onStartup": true
+  },
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "enabled": { "type": "boolean", "description": "Master switch." },
+      "workspaceDir": { "type": "string", "description": "Directory the CLIs run from." },
+      "python": { "type": "string", "description": "Python executable. Default 'python'." },
+      "timeoutMs": { "type": "number", "description": "Max wall time per CLI call. Default 120000." }
+    },
+    "additionalProperties": false
+  }
+}
